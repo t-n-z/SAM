@@ -1,0 +1,14 @@
+node_modules/
+build/
+dist/
+__pycache__/
+*.spec
+*.pyc
+.claude/
+*.bak
+
+# internal dev / AI-session handoff docs — kept local, not published
+COLD-START.md
+STATE.md
+v0.9-BATCH.md
+audit/

@@ -1,0 +1,81 @@
+{
+  "name": "sam",
+  "productName": "SAM",
+  "version": "0.9.0",
+  "description": "SAM - Simple As Markdown",
+  "author": "t-n-z",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "devlog": "electron . --devlogger",
+    "dist:portable": "electron-builder --win portable",
+    "dist:dir": "electron-builder --win dir",
+    "dist:installer": "electron-builder --win nsis",
+    "dist:both": "electron-builder --win portable dir",
+    "dist:all": "electron-builder --win nsis portable dir",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux"
+  },
+  "devDependencies": {
+    "electron": "^42.5.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "nz.co.cdss.sam",
+    "productName": "SAM",
+    "files": [
+      "main.js",
+      "preload.js",
+      "devlogger.js",
+      "web/**/*"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        "portable",
+        "dir"
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Utility"
+    },
+    "portable": {
+      "artifactName": "SAM.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "SAM Setup ${version}.exe",
+      "shortcutName": "SAM"
+    },
+    "fileAssociations": [
+      {
+        "ext": "md",
+        "name": "Markdown document",
+        "description": "Markdown document",
+        "role": "Editor"
+      },
+      {
+        "ext": "markdown",
+        "name": "Markdown document",
+        "description": "Markdown document",
+        "role": "Editor"
+      }
+    ]
+  }
+}

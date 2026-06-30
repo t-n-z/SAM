@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SAM</title>
+<script defer src="./marked.min.js"></script>
+<script defer src="./purify.min.js"></script>
+<script defer src="./turndown.js"></script>
+<script defer src="./turndown-plugin-gfm.js"></script>
+<script defer src="./papaparse.min.js"></script>
+<script defer src="./xlsx.min.js"></script>
+<script defer src="./mammoth.browser.min.js"></script>
+<script defer src="./convert.js"></script>
+<script defer src="./notes.js"></script>
+<script defer src="./app.js"></script>
+<style>
+  :root {
+    --bg: #1e1e1e; --fg: #f0f0f0; --outline: #000000;
+    --chrome: #2b2b2b; --chrome-fg: #dcdcdc; --menu-pop: #333333;
+    --menu-hover: #4a4a4a; --accent: #4a9eff; --border: #454545;
+    --scroll: rgba(255,255,255,.30); --scroll-hi: rgba(255,255,255,.55);
+    --edfs: 14px; --edlh: 22px; --pvfs: 16px;   /* editor/preview text size (Ctrl+wheel) */
+  }
+  * { box-sizing: border-box; }
+
+  /* ---------- themed scrollbars (thin, soft-edged, theme-aware) ---------- */
+  ::-webkit-scrollbar { width: 11px; height: 11px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(150,150,150,.42); border-radius: 8px;
+    border: 3px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(150,150,150,.72); }
+  ::-webkit-scrollbar-corner { background: transparent; }
+  #editor::-webkit-scrollbar-thumb, #preview::-webkit-scrollbar-thumb {
+    background: var(--scroll); border: 3px solid transparent; background-clip: padding-box; border-radius: 8px; }
+  #editor::-webkit-scrollbar-thumb:hover, #preview::-webkit-scrollbar-thumb:hover { background: var(--scroll-hi); }
+  html, body { height: 100%; margin: 0; }
+  body { display: flex; flex-direction: column; font-family: "Segoe UI", system-ui, sans-serif;
+    font-size: 13px; background: var(--chrome); color: var(--chrome-fg); overflow: hidden; user-select: none; }
+
+  /* frameless drag (Electron): drag from the menu bar; interactive bits opt out */
+  #menubar { -webkit-app-region: drag; }
+  .title, .dropdown, .mi, .ribx, .keybtn, #wctl button, #fmttip, #logo { -webkit-app-region: no-drag; }
+
+  /* ---------- menu bar ---------- */
+  #menubar { display: flex; flex: 0 0 auto; background: var(--chrome);
+             border-bottom: 1px solid var(--border); position: relative; z-index: 50; }
+  .menu > .title { padding: 4px 11px; cursor: default; line-height: 1.6; }
+  .menu.open > .title, .menu > .title:hover { background: var(--menu-hover); }
+  .menu { position: relative; }
+  .dropdown { display: none; position: absolute; top: 100%; left: 0; min-width: 230px;
+    background: var(--menu-pop); border: 1px solid var(--border);
+    box-shadow: 0 6px 18px rgba(0,0,0,.45); padding: 4px 0; z-index: 60; }
+  .menu.open > .dropdown { display: block; }
+  .mi { display: flex; align-items: center; gap: 10px; padding: 5px 12px 5px 26px;
+        position: relative; white-space: nowrap; cursor: default; }
+  .mi:hover { background: var(--menu-hover); }
+  .mi .key { margin-left: auto; }
+  .keybtn { margin-left: auto; font-size: 11px; line-height: 1.5; padding: 0 7px;
+            border: 1px solid var(--border); border-radius: 4px; opacity: .8;
+            cursor: pointer; white-space: nowrap; min-width: 30px; text-align: center; }
+  .keybtn:hover { background: var(--menu-hover); opacity: 1; }
+  .keybtn.unset { opacity: .4; font-style: italic; }
+  .keybtn.capturing { border-color: var(--accent); color: var(--accent);
+                      background: rgba(74,158,255,.14); min-width: 84px; }
+  .mi .check { position: absolute; left: 9px; opacity: 0; }
+  .mi.checked .check { opacity: 1; }
+  .mi .miswitch { width:26px; height:14px; border-radius:8px; background:#555; position:relative; cursor:pointer; flex:0 0 auto; margin-left:10px; }
+  .mi .miswitch.on { background:var(--accent); }
+  .mi .miswitch .kn { position:absolute; top:2px; left:2px; width:10px; height:10px; border-radius:50%; background:#fff; transition:left .12s; }
+  .mi .miswitch.on .kn { left:14px; }
+  .sep { height: 1px; background: var(--border); margin: 4px 8px; }
+  .mi.has-sub > .arrow { margin-left: auto; opacity: .6; }
+  .submenu { display: none; position: absolute; top: -5px; left: 100%; min-width: 240px;
+             max-height: 70vh; overflow: auto; background: var(--menu-pop);
+             border: 1px solid var(--border); box-shadow: 0 6px 18px rgba(0,0,0,.45); padding: 4px 0; }
+  .mi.has-sub:hover > .submenu { display: block; }
+  .submenu .mi { padding-left: 14px; }
+  .submenu .empty { padding: 6px 14px; opacity: .5; }
+
+  /* frameless chrome */
+  #logo { position: relative; display: flex; align-items: center; color: var(--accent); }
+  #logo > .title { display: flex; align-items: center; padding: 4px 8px; cursor: default; }
+  #logo.open > .title, #logo > .title:hover { background: var(--menu-hover); }
+  #logo .dropdown { min-width: 168px; }
+  #titledrag { flex: 1 1 auto; display: flex; align-items: center; justify-content: center;
+               min-width: 0; align-self: stretch; font-size: 12px; color: #8f8f8f;
+               white-space: nowrap; overflow: hidden; }
+  #titledrag span { pointer-events: none; }
+  #wctl { display: flex; flex: 0 0 auto; align-self: stretch; }
+  #wctl button { width: 44px; border: 0; background: transparent; color: var(--chrome-fg);
+                 font-size: 13px; line-height: 1; cursor: pointer; }
+  #wctl button:hover { background: var(--menu-hover); }
+  #wctl #btnClose:hover { background: #e04050; color: #fff; }
+
+  /* ---------- formatting ribbon ---------- */
+  #ribbon { display: flex; align-items: center; gap: 1px; padding: 0 5px; margin-left: 2px;
+            border-left: 1px solid var(--border); }
+  .ribx { width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+          color: var(--chrome-fg); background: transparent; border: 0; border-radius: 4px;
+          cursor: pointer; padding: 0; }
+  .ribx:hover { background: var(--menu-hover); }
+  .ribx:active { background: var(--menu-pop); }
+  .ribx svg { width: 16px; height: 16px; display: block; }
+  .ribsep { width: 1px; align-self: center; height: 16px; background: var(--border); margin: 0 3px; }
+
+  /* corridor tooltip for ribbon */
+  #fmttip { position: fixed; z-index: 90; display: none; min-width: 140px; max-width: 230px;
+            background: var(--menu-pop); border: 1px solid var(--border); border-radius: 7px;
+            box-shadow: 0 6px 18px rgba(0,0,0,.5); padding: 8px 10px; font-size: 12px; }
+  #fmttip.show { display: block; }
+  #fmttip .nm { font-weight: 600; margin-bottom: 2px; }
+  #fmttip .ds { color: #a8a8a8; margin-bottom: 8px; line-height: 1.35;
+                font-family: "Cascadia Mono", Consolas, monospace; }
+  #fmttip .keybtn { margin-left: 0; display: inline-block; }
+
+  /* ---------- content ---------- */
+  #content { flex: 1 1 auto; position: relative; min-height: 0; }
+  #editor, #preview { position: absolute; inset: 0; margin: 0; border: 0; padding: 22px 26px;
+    overflow: auto; background: var(--bg); color: var(--fg); user-select: text; }
+  #editor { font-family: "Cascadia Mono", Consolas, "Courier New", monospace; font-size: var(--edfs);
+    line-height: var(--edlh); resize: none; outline: none; white-space: pre; tab-size: 4; }
+  body.wrap #editor { white-space: pre-wrap; overflow-wrap: anywhere; }
+  #preview { font-size: var(--pvfs); line-height: 1.65; }
+  #preview[contenteditable="true"] { outline: none; }
+  body.mode-raw  #preview { display: none; }
+  body.mode-rich #editor  { display: none; }
+
+  body.highvis #editor, body.highvis #preview {
+    text-shadow: -1px -1px 0 var(--outline), 1px -1px 0 var(--outline),
+      -1px 1px 0 var(--outline), 1px 1px 0 var(--outline), 0 -1px 0 var(--outline),
+      0 1px 0 var(--outline), -1px 0 0 var(--outline), 1px 0 0 var(--outline); }
+
+  #preview h1,#preview h2,#preview h3,#preview h4 { line-height:1.25; margin:1.2em 0 .5em; }
+  #preview h1 { font-size:1.9em; border-bottom:1px solid currentColor; padding-bottom:.25em; }
+  #preview h2 { font-size:1.5em; border-bottom:1px solid color-mix(in srgb,currentColor 30%,transparent); padding-bottom:.2em; }
+  #preview h3 { font-size:1.25em; }
+  #preview p,#preview ul,#preview ol,#preview blockquote,#preview pre,#preview table { margin:0 0 1em; }
+  #preview a { color: var(--accent); }
+  #preview code { font-family:"Cascadia Mono",Consolas,monospace; font-size:.88em;
+    background:color-mix(in srgb,currentColor 14%,transparent); padding:.15em .4em; border-radius:4px; }
+  #preview pre { background:color-mix(in srgb,currentColor 10%,transparent); padding:14px 16px; border-radius:7px; overflow:auto; }
+  #preview pre code { background:none; padding:0; }
+  #preview blockquote { margin-left:0; padding:.2em 1em; border-left:4px solid color-mix(in srgb,currentColor 45%,transparent); opacity:.9; }
+  #preview table { border-collapse:collapse; }
+  #preview th,#preview td { border:1px solid color-mix(in srgb,currentColor 35%,transparent); padding:6px 11px; }
+  #preview img { max-width:100%; }
+  #preview hr { border:0; border-top:1px solid color-mix(in srgb,currentColor 35%,transparent); margin:1.5em 0; }
+
+  /* ---------- status bar ---------- */
+  #status { display:flex; align-items:center; gap:14px; flex:0 0 auto; padding:3px 12px;
+    font-size:12px; background:var(--chrome); border-top:1px solid var(--border); color:#9a9a9a; }
+  #status .dot { color:var(--accent); font-size:14px; line-height:1; visibility:hidden; }
+  body.dirty #status .dot { visibility:visible; }
+  #stPath { flex:1 1 auto; min-width:0; overflow:hidden; white-space:nowrap; }
+  #status .right { margin-left:12px; text-transform:capitalize; }
+  #status .cmtstat { display:none; align-items:center; gap:4px; cursor:pointer; color:#9a9a9a; }
+  body.comments #status .cmtstat { display:flex; }
+  #status .cmtstat:hover { color:var(--accent); }
+  #status .cmtstat svg { width:13px; height:13px; display:block; }
+  body.no-status #status { display:none; }
+
+  /* ---------- about modal ---------- */
+  #about { display:none; position:fixed; inset:0; z-index:100; background:rgba(0,0,0,.5);
+    align-items:center; justify-content:center; }
+  #about.show { display:flex; }
+  #about .box { background:var(--menu-pop); border:1px solid var(--border); border-radius:10px;
+    width:380px; max-width:90vw; padding:22px 24px; box-shadow:0 12px 40px rgba(0,0,0,.5); }
+  #about h2 { margin:0 0 2px; font-size:20px; }
+  #about .ver { opacity:.6; font-size:12px; margin-bottom:14px; }
+  #about p { font-size:13px; line-height:1.5; margin:.5em 0; }
+  #about .row { margin:.4em 0; }
+  #about .k { opacity:.6; display:inline-block; min-width:64px; }
+  #about a { color:var(--accent); cursor:pointer; }
+  #about .close { margin-top:16px; text-align:right; }
+  #about .close button { font:inherit; background:#3a3a3a; color:var(--chrome-fg);
+    border:1px solid var(--border); border-radius:6px; padding:6px 16px; cursor:pointer; }
+  #about .close button:hover { background:var(--menu-hover); }
+  #about a.link { color:var(--accent); cursor:pointer; }
+
+  /* ---------- buy-me-a-coffee ---------- */
+  #status .coffee { display:flex; align-items:center; cursor:pointer; color:#9a9a9a; padding:0 2px; }
+  #status .coffee:hover { color:var(--accent); }
+  #status .coffee svg { width:15px; height:15px; display:block; }
+  #coffee { display:none; position:fixed; inset:0; z-index:100; background:rgba(0,0,0,.5);
+    align-items:center; justify-content:center; }
+  #coffee.show { display:flex; }
+  #coffee .box { background:var(--menu-pop); border:1px solid var(--border); border-radius:10px;
+    width:320px; max-width:90vw; padding:24px; text-align:center; box-shadow:0 12px 40px rgba(0,0,0,.5); }
+  #coffee .cup { color:var(--accent); margin-bottom:4px; }
+  #coffee h2 { margin:.2em 0; font-size:18px; }
+  #coffee p { font-size:13px; line-height:1.5; color:#bbb; margin:.5em 0 1em; }
+  #coffee a { color:var(--accent); cursor:pointer; word-break:break-all; }
+  #coffee a.disabled { color:#888; cursor:default; font-style:italic; }
+  #coffee .close button { font:inherit; background:#3a3a3a; color:var(--chrome-fg);
+    border:1px solid var(--border); border-radius:6px; padding:6px 16px; cursor:pointer; margin-top:14px; }
+  #coffee .close button:hover { background:var(--menu-hover); }
+
+  /* ---------- v0.9: comment bubble in window controls ---------- */
+  #wctl #btnComments { width:40px; position:relative; display:flex; align-items:center; justify-content:center; }
+  #wctl #btnComments.on { color: var(--accent); }
+  #wctl #btnComments .badge { position:absolute; top:3px; right:4px; min-width:13px; height:13px; padding:0 3px;
+    font-size:9px; line-height:13px; border-radius:7px; background:var(--accent); color:#fff; display:none; }
+  #wctl #btnComments.has .badge { display:block; }
+  @keyframes cmtflash { 0%,100%{ background:transparent; } 50%{ background:rgba(74,158,255,.6); } }
+  #wctl #btnComments.flash { animation: cmtflash .6s ease-in-out 4; }
+
+  /* ---------- content split: editor | splitter | comments ---------- */
+  #content { display:flex; }
+  #leftcol { flex:1 1 auto; display:flex; flex-direction:column; min-width:140px; min-height:0; }
+  #editwrap { position:relative; flex:1 1 auto; min-width:0; min-height:0; }
+  #splitter { flex:0 0 5px; cursor:col-resize; background:var(--border); display:none; }
+  #splitter:hover { background:var(--accent); }
+  #comments { flex:0 0 330px; min-width:220px; max-width:72%; display:none; flex-direction:column;
+    background:var(--chrome); border-left:1px solid var(--border); overflow:hidden; }
+  body.comments #splitter, body.comments #comments { display:flex; }
+  #cmtbar { flex:0 0 auto; display:flex; flex-direction:column; gap:6px;
+    padding:7px 8px; border-bottom:1px solid var(--border); }
+  #cmtfoot { flex:0 0 auto; display:flex; flex-direction:column; gap:6px;
+    padding:7px 8px; border-top:1px solid var(--border); }
+  #cmtfoot .cmtcountrow { justify-content:center; gap:6px; }
+  #cmtfoot .cmtcountrow svg { width:14px; height:14px; color:#9a9a9a; }
+  #cmtfoot .cmtcountrow #cmtCounts { margin-left:0; }
+  .cbrow { display:flex; gap:6px; align-items:center; }
+  #cmtbar input, #cmtfoot input { background:#262626; color:var(--chrome-fg); border:1px solid var(--border);
+    border-radius:5px; font:inherit; font-size:12px; padding:3px 7px; outline:none; }
+  #cmtName { flex:1 1 auto; min-width:40px; }
+  #cmtSearch { flex:1 1 auto; min-width:60px; }
+  #cmtbar .navbtn, #cmtfoot .navbtn { width:24px; height:24px; border:1px solid var(--border); background:#333;
+    color:var(--chrome-fg); border-radius:5px; cursor:pointer; font-size:9px; padding:0; }
+  #cmtbar .navbtn:hover, #cmtfoot .navbtn:hover { background:var(--menu-hover); }
+  #cmtCounts { font-family:"Cascadia Mono",Consolas,monospace; font-size:11px; color:#9a9a9a; margin-left:auto; }
+  #cmtlist { flex:1 1 auto; overflow:auto; padding:8px; }
+  #cmtlist .empty { color:#888; font-size:12px; padding:14px 8px; text-align:center; line-height:1.5; }
+  .cmt { border:1px solid var(--border); border-radius:8px; margin-bottom:10px; background:var(--menu-pop); }
+  .cmt.sel { border-color:var(--accent); }
+  .cmt.st-resolved, .cmt.st-deleted { opacity:.55; }
+  .cmt .quote { font-size:11px; color:#b7c7d8; background:rgba(74,158,255,.10); border-bottom:1px solid var(--border);
+    padding:5px 9px; border-radius:8px 8px 0 0; cursor:pointer; max-height:48px; overflow:hidden; }
+  .cmt .quote.orphan { color:#e0a060; background:rgba(224,160,96,.12); }
+  .cmt .msgs { padding:4px 9px; }
+  .cmt .msg { font-size:12.5px; line-height:1.4; margin:6px 0; }
+  .cmt .msg .who { font-weight:600; color:var(--accent); }
+  .cmt .msg .when { color:#888; font-size:10px; margin-left:6px; }
+  .cmt .msg .body { margin-top:1px; white-space:pre-wrap; word-break:break-word; }
+  .cmt .addrow { display:flex; gap:5px; padding:4px 9px 9px; }
+  .cmt .addrow textarea { flex:1 1 auto; resize:none; height:32px; min-height:32px; background:#262626;
+    color:var(--chrome-fg); border:1px solid var(--border); border-radius:5px; font:inherit; font-size:12px; padding:6px 7px; outline:none; }
+  .cmt button { border:1px solid var(--border); background:#333; color:var(--chrome-fg);
+    border-radius:5px; cursor:pointer; font-size:11px; padding:2px 8px; }
+  .cmt button:hover { background:var(--menu-hover); }
+  .cmt .send { align-self:stretch; }
+  .cmt .acts { display:flex; gap:6px; padding:0 9px 9px; }
+  .cmt .acts .danger:hover { background:#7a3030; color:#fff; }
+  .cmt .acts .undo { color:var(--accent); border-color:var(--accent); }
+  .cmt .acts .undo:hover { background:rgba(74,158,255,.16); }
+
+  /* comment boxes: soft red chamfered box around anchored text in BOTH views + numbered red bubble.
+     Raw view: boxes are REAL divs on an overlay layer, positioned from Range.getClientRects() (one box per
+     wrapped line) -> always pixel-aligned, and the editor DOM stays pristine plain text. Preview: <mark>.
+     OUTLINE (not border/padding) keeps the box from shifting glyphs. */
+  #rawboxes { position:absolute; inset:0; overflow:hidden; pointer-events:none; z-index:3; }   /* clip boxes+badges to the editor area so they don't bleed over the comments panel when the width shrinks */
+  body.mode-rich #rawboxes, body:not(.comments) #rawboxes { display:none; }
+  .cbox { position:absolute; box-sizing:border-box; pointer-events:none; }
+  #preview mark.cmthl { position:relative; }
+  .cbox, #preview mark.cmthl { background:rgba(232,80,80,.12);
+    outline:1.5px solid rgba(232,80,80,.72); outline-offset:1px; border-radius:4px; cursor:pointer; }
+  .cbox.sel, #preview mark.cmthl.sel { outline-width:3px; background:rgba(232,80,80,.22); }
+  body.highvis .cbox, body.highvis #preview mark.cmthl { outline-width:2.5px; }
+  body.highvis .cbox.sel, body.highvis #preview mark.cmthl.sel { outline-width:3.5px; }
+  .cbox[data-n]:not([data-n=""])::after, #preview mark.cmthl[data-n]:not([data-n=""])::after {
+    content:attr(data-n); position:absolute; top:calc(-9px + var(--noy, 0px)); right:-9px; min-width:14px; height:14px; padding:0 3px;
+    box-sizing:border-box; font:700 9px/14px "Segoe UI",system-ui,sans-serif; color:#fff; background:#e05050;
+    border-radius:7px; text-align:center; pointer-events:none; box-shadow:0 1px 3px rgba(0,0,0,.4); }
+
+  /* ---------- find / replace dialog ---------- */
+  #finddlg { position:fixed; top:34px; right:16px; z-index:80; display:none; width:300px;
+    background:var(--menu-pop); border:1px solid var(--border); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.5); padding:10px; }
+  #finddlg.show { display:block; }
+  #finddlg .frow { display:flex; align-items:center; gap:6px; margin:4px 0; }
+  #finddlg label.fl { width:60px; font-size:12px; color:#bbb; }
+  #finddlg input[type=text] { flex:1 1 auto; background:#262626; color:var(--chrome-fg); border:1px solid var(--border);
+    border-radius:5px; font:inherit; font-size:12px; padding:4px 7px; outline:none; }
+  #finddlg .opts { display:flex; gap:12px; font-size:12px; color:#bbb; margin:7px 0; flex-wrap:wrap; }
+  #finddlg .opts label { display:flex; gap:4px; align-items:center; cursor:pointer; }
+  #finddlg .btns { display:flex; gap:6px; justify-content:flex-end; margin-top:6px; flex-wrap:wrap; }
+  #finddlg button { border:1px solid var(--border); background:#333; color:var(--chrome-fg); border-radius:5px;
+    cursor:pointer; font:inherit; font-size:12px; padding:4px 10px; }
+  #finddlg button:hover { background:var(--menu-hover); }
+  #finddlg .stat { font-size:11px; color:#9a9a9a; min-height:14px; }
+  #finddlg .replace-only { display:none; }
+
+  /* ---------- close confirm modal (themed, matches window) ---------- */
+  #closedlg { display:none; position:fixed; inset:0; z-index:120; background:rgba(0,0,0,.5);
+    align-items:center; justify-content:center; }
+  #closedlg.show { display:flex; }
+  #closedlg .box { background:var(--menu-pop); border:1px solid var(--border); border-radius:10px;
+    width:360px; max-width:90vw; padding:20px 22px; box-shadow:0 12px 40px rgba(0,0,0,.5); }
+  #closedlg h2 { margin:0 0 8px; font-size:16px; }
+  #closedlg p { font-size:13px; color:#ccc; margin:0 0 16px; line-height:1.45; }
+  #closedlg .btns { display:flex; gap:8px; justify-content:flex-end; }
+  #closedlg button { font:inherit; font-size:13px; border:1px solid var(--border); background:#3a3a3a;
+    color:var(--chrome-fg); border-radius:6px; padding:6px 14px; cursor:pointer; }
+  #closedlg button:hover { background:var(--menu-hover); }
+  #closedlg button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+
+  /* ---------- generic themed dialog (replaces native alert/confirm/prompt + the Electron message boxes) ---------- */
+  #samdlg { display:none; position:fixed; inset:0; z-index:130; background:rgba(0,0,0,.5); align-items:center; justify-content:center; }
+  #samdlg.show { display:flex; }
+  #samdlg .box { background:var(--menu-pop); border:1px solid var(--border); border-radius:10px;
+    width:380px; max-width:90vw; padding:20px 22px; box-shadow:0 12px 40px rgba(0,0,0,.5); }
+  #samdlg h2 { margin:0 0 8px; font-size:16px; }
+  #samdlg h2:empty { display:none; }
+  #samdlg p { font-size:13px; color:#ccc; margin:0 0 14px; line-height:1.45; white-space:pre-wrap; word-break:break-word; }
+  #samdlg #samdlg-input { display:none; width:100%; box-sizing:border-box; font:inherit; font-size:13px;
+    background:var(--bg); color:var(--fg); border:1px solid var(--border); border-radius:6px; padding:6px 8px; margin:0 0 14px; outline:none; }
+  #samdlg #samdlg-input:focus { border-color:var(--accent); }
+  #samdlg #samdlg-checkrow { display:none; align-items:center; gap:6px; font-size:12px; color:#ccc; margin:0 0 14px; cursor:pointer; user-select:none; }
+  #samdlg .btns { display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; }
+  #samdlg button { font:inherit; font-size:13px; border:1px solid var(--border); background:#3a3a3a;
+    color:var(--chrome-fg); border-radius:6px; padding:6px 14px; cursor:pointer; }
+  #samdlg button:hover { background:var(--menu-hover); }
+  #samdlg button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  #samdlg button.danger { background:#7a2626; border-color:#7a2626; color:#fff; }
+  #samdlg button.danger:hover { background:#9a2f2f; }
+
+  /* ---------- drag-drop overlay ---------- */
+  #dropmask { display:none; position:fixed; inset:0; z-index:130; background:rgba(20,30,45,.78);
+    align-items:center; justify-content:center; pointer-events:none; }
+  #dropmask.show { display:flex; }
+  #dropmask .inner { border:2px dashed var(--accent); border-radius:14px; padding:30px 50px;
+    font-size:16px; color:#dfeaff; background:rgba(0,0,0,.25); }
+
+  /* ---------- responsive: title drops first, then the ribbon wraps to row 2 (driven by reflowBar);
+       the comment + min/max/close (#wctl) always stay on the top row ---------- */
+  #menubar { flex-wrap: nowrap; }
+  #menubar.ribbon-2 { flex-wrap: wrap; }
+  #menubar.hide-title #titledrag { display: none; }
+  #menubar.ribbon-2 #ribbon { order: 10; flex-basis: 100%; border-left: 0;
+    border-top: 1px solid var(--border); justify-content: flex-start; padding: 2px 5px; }
+  #logo, .menu, #ribbon, #wctl { flex-shrink: 0; }
+  #wctl { margin-left: auto; }
+
+  #bgPick { position:absolute; width:0; height:0; opacity:0; pointer-events:none; }
+</style>
+</head>
+<body class="mode-raw">
+
+  <div id="menubar">
+    <div id="logo" class="menu" data-menu title="Window menu">
+      <div class="title">
+        <svg viewBox="0 0 22 22" width="17" height="17" aria-hidden="true"><!-- SAM mark: speech bubble + M (markdown + comments) -->
+          <path d="M3 3.5 h16 a1.8 1.8 0 0 1 1.8 1.8 v8.4 a1.8 1.8 0 0 1 -1.8 1.8 h-8 l-4.5 3.6 v-3.6 h-3.5 a1.8 1.8 0 0 1 -1.8 -1.8 v-8.4 a1.8 1.8 0 0 1 1.8 -1.8 z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+          <path d="M6.5 13 V7 l2.7 3 2.7 -3 V13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="dropdown">
+        <div class="mi" data-action="win.restore" data-nokey><span class="check">&#10003;</span>Restore</div>
+        <div class="mi" data-action="win.minimize" data-nokey><span class="check">&#10003;</span>Minimize</div>
+        <div class="mi" data-action="win.maximize" data-nokey><span class="check">&#10003;</span>Maximize</div>
+        <div class="mi" data-action="win.close" data-nokey><span class="check">&#10003;</span>Close</div>
+        <div class="sep"></div>
+        <div class="mi" data-action="about.about" data-nokey><span class="check">&#10003;</span>About SAM&hellip;</div>
+      </div>
+    </div>
+    <div class="menu" data-menu>
+      <div class="title">File</div>
+      <div class="dropdown">
+        <div class="mi" data-action="file.new"><span class="check">&#10003;</span>New<span class="key">Ctrl+N</span></div>
+        <div class="mi" data-action="file.open"><span class="check">&#10003;</span>Open&hellip;<span class="key">Ctrl+O</span></div>
+        <div class="mi" data-action="file.save"><span class="check">&#10003;</span>Save<span class="key">Ctrl+S</span></div>
+        <div class="mi" data-action="file.saveas"><span class="check">&#10003;</span>Save As&hellip;<span class="key">Ctrl+Shift+S</span></div>
+        <div class="sep"></div>
+        <div class="mi has-sub" id="mi-recent"><span class="check">&#10003;</span>Recent<span class="arrow">&#9656;</span>
+          <div class="submenu" id="recent-sub"><div class="empty">(none)</div></div>
+        </div>
+        <div class="sep"></div>
+        <div class="mi" data-action="file.close"><span class="check">&#10003;</span>Close<span class="key">Ctrl+W</span></div>
+        <div class="mi" data-action="file.exit"><span class="check">&#10003;</span>Exit</div>
+      </div>
+    </div>
+    <div class="menu" data-menu>
+      <div class="title">Edit</div>
+      <div class="dropdown">
+        <div class="mi" data-action="edit.undo"><span class="check">&#10003;</span>Undo<span class="key">Ctrl+Z</span></div>
+        <div class="mi" data-action="edit.redo"><span class="check">&#10003;</span>Redo<span class="key">Ctrl+Y</span></div>
+        <div class="sep"></div>
+        <div class="mi" data-action="edit.cut"><span class="check">&#10003;</span>Cut<span class="key">Ctrl+X</span></div>
+        <div class="mi" data-action="edit.copy"><span class="check">&#10003;</span>Copy<span class="key">Ctrl+C</span></div>
+        <div class="mi" data-action="edit.paste"><span class="check">&#10003;</span>Paste<span class="key">Ctrl+V</span></div>
+        <div class="mi" data-action="edit.selectall"><span class="check">&#10003;</span>Select All<span class="key">Ctrl+A</span></div>
+        <div class="sep"></div>
+        <div class="mi" data-action="edit.find"><span class="check">&#10003;</span>Find&hellip;<span class="key">Ctrl+F</span></div>
+        <div class="mi" data-action="edit.replace"><span class="check">&#10003;</span>Replace&hellip;<span class="key">Ctrl+H</span></div>
+        <div class="sep"></div>
+        <div class="mi" data-action="edit.copypath"><span class="check">&#10003;</span>Copy Full Path</div>
+        <div class="mi" data-action="edit.copydir"><span class="check">&#10003;</span>Copy Directory</div>
+        <div class="sep"></div>
+        <div class="mi" data-action="edit.explorer"><span class="check">&#10003;</span>Open Containing Folder</div>
+        <div class="mi" data-action="edit.reset" data-nokey><span class="check">&#10003;</span>Reset Settings&hellip;</div>
+      </div>
+    </div>
+    <div class="menu" data-menu>
+      <div class="title">View</div>
+      <div class="dropdown">
+        <div class="mi" data-action="view.markdown" id="mi-md"><span class="check">&#10003;</span>Toggle Markdown<span class="key">F12</span></div>
+        <div class="mi" data-action="view.ontop" id="mi-ontop"><span class="check">&#10003;</span>Keep on Top<span class="miswitch" id="ontopTrans" title="When on, SAM goes 50% transparent when it loses focus (only while Keep on Top is active)"><span class="kn"></span></span><span class="key">F11</span></div>
+        <div class="sep"></div>
+        <div class="mi" data-action="view.highvis" id="mi-highvis"><span class="check">&#10003;</span>High-visibility<span class="key">Ctrl+Shift+H</span></div>
+        <div class="mi" data-action="view.bg"><span class="check">&#10003;</span>Background Colour&hellip;</div>
+        <div class="sep"></div>
+        <div class="mi" data-action="view.status" id="mi-status"><span class="check">&#10003;</span>Status Bar</div>
+        <div class="mi" data-action="view.wrap" id="mi-wrap"><span class="check">&#10003;</span>Word Wrap</div>
+        <div class="mi" data-action="view.comments" id="mi-comments"><span class="check">&#10003;</span>Comments Panel</div>
+        <div class="sep"></div>
+        <div class="mi" data-action="view.instructions" id="mi-instructions"><span class="check">&#10003;</span>Instructions at startup</div>
+      </div>
+    </div>
+    <div class="menu" data-menu>
+      <div class="title">About</div>
+      <div class="dropdown">
+        <div class="mi" data-action="about.about" data-nokey><span class="check">&#10003;</span>About SAM&hellip;</div>
+        <div class="mi" data-action="app.setdefault" data-nokey><span class="check">&#10003;</span>Set as Default .md Viewer&hellip;</div>
+      </div>
+    </div>
+
+    <div id="ribbon"></div>
+
+    <div id="titledrag"><span id="winTitle">SAM: Simple As Markdown</span></div>
+    <div id="wctl">
+      <button id="btnComments" title="Comments (toggle panel)">
+        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+          <path d="M2 3 h12 v8 h-7 l-3 2.6 V11 H2 Z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+          <path d="M8 5.3 V8.7 M6.3 7 H9.7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+        <span class="badge">0</span>
+      </button>
+      <button id="btnMin" title="Minimize">&#8211;</button>
+      <button id="btnMax" title="Maximize / Restore">&#9633;</button>
+      <button id="btnClose" title="Close">&#10005;</button>
+    </div>
+  </div>
+
+  <div id="content">
+    <div id="leftcol">
+      <div id="editwrap">
+        <div id="editor" contenteditable="plaintext-only" spellcheck="false"></div>
+        <div id="preview"></div>
+        <div id="rawboxes" aria-hidden="true"></div>
+      </div>
+      <div id="status">
+        <span id="stLnCol">Ln 1, Col 1</span>
+        <span class="dot">&#9679;</span>
+        <span id="stPath">(untitled)</span>
+        <span class="cmtstat" id="stComments" title="Comments — click to toggle panel"><span id="stCommentsN">0</span></span>
+        <span class="right" id="stMode">raw</span>
+        <span class="coffee" id="btnCoffee" title="Buy me a coffee">
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M2.5 6.5 H11 v3 a3 3 0 0 1-3 3 H5.5 a3 3 0 0 1-3-3 Z" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <path d="M11 7 h1.6 a1.6 1.6 0 0 1 0 3.2 H11" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <path d="M4.7 2.4 q-1 1 0 2 M7 2.4 q-1 1 0 2" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+          </svg>
+        </span>
+      </div>
+    </div>
+    <div id="splitter" title="Drag to resize the comments panel"></div>
+    <aside id="comments">
+      <div id="cmtbar">
+        <div class="cbrow">
+          <button class="navbtn" id="cmtAdd" title="New comment on the selected text">+</button>
+          <input id="cmtName" placeholder="Name" title="Your name on comments" maxlength="80">
+        </div>
+      </div>
+      <div id="cmtlist"><div class="empty">No comments. Select text in the document, then click the bubble&rsquo;s + to start one.</div></div>
+      <div id="cmtfoot">
+        <div class="cbrow">
+          <input id="cmtSearch" placeholder="Search… (author:Name  is:open)">
+          <button class="navbtn" id="cmtPrev" title="Previous comment">&#9664;</button>
+          <button class="navbtn" id="cmtNext" title="Next comment">&#9654;</button>
+        </div>
+        <div class="cbrow cmtcountrow" title="position / open / resolved / deleted">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3 h12 v8 h-7 l-3 2.6 V11 H2 Z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+          <span id="cmtCounts">00 / 00 / 00 / 00</span>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <div id="about">
+    <div class="box">
+      <h2 id="ab-title">SAM</h2>
+      <div class="ver" id="ab-ver">v0.0.0</div>
+      <p>Simple As Markdown — edit raw or rendered, format with the ribbon, pick any
+         background, high-visibility halo so text never vanishes.</p>
+      <div class="row"><span class="k">GitHub</span><span id="ab-gh">(coming soon)</span></div>
+      <div class="row"><span class="k">Coffee</span><span id="ab-coffee">(coming soon)</span></div>
+      <div class="row"><span class="k">Notes</span>One process, many windows. Settings saved per user.</div>
+      <div class="close"><button id="ab-closebtn">Close</button></div>
+    </div>
+  </div>
+
+  <div id="coffee">
+    <div class="box">
+      <div class="cup">
+        <svg viewBox="0 0 16 16" width="34" height="34" aria-hidden="true">
+          <path d="M2.5 6.5 H11 v3 a3 3 0 0 1-3 3 H5.5 a3 3 0 0 1-3-3 Z" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <path d="M11 7 h1.6 a1.6 1.6 0 0 1 0 3.2 H11" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <path d="M4.7 2.4 q-1 1 0 2 M7 2.4 q-1 1 0 2" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <h2>Buy me a coffee</h2>
+      <p>If SAM saves you a few minutes, a coffee keeps it caffeinated. Cheers!</p>
+      <div><a id="cf-url" class="disabled">(link coming soon)</a></div>
+      <div class="close"><button id="cof-closebtn">Close</button></div>
+    </div>
+  </div>
+
+  <div id="fmttip"><div class="nm"></div><div class="ds"></div><span class="keybtn"></span></div>
+
+  <div id="finddlg">
+    <div class="frow"><label class="fl" for="findIn">Find</label><input type="text" id="findIn"></div>
+    <div class="frow replace-only"><label class="fl" for="replIn">Replace</label><input type="text" id="replIn"></div>
+    <div class="opts">
+      <label><input type="checkbox" id="findCase">Match case</label>
+      <label><input type="checkbox" id="findWrap" checked>Wrap around</label>
+      <label><input type="checkbox" id="findUp">Up</label>
+    </div>
+    <div class="stat" id="findStat"></div>
+    <div class="btns">
+      <button id="findNext">Find Next</button>
+      <button id="replOne" class="replace-only">Replace</button>
+      <button id="replAll" class="replace-only">Replace All</button>
+      <button id="findClose">Close</button>
+    </div>
+  </div>
+
+  <div id="closedlg">
+    <div class="box">
+      <h2 id="close-title">Save changes?</h2>
+      <p id="close-msg">This document has unsaved changes.</p>
+      <div class="btns">
+        <button id="closeSave" class="primary">Save</button>
+        <button id="closeDont">Don&rsquo;t Save</button>
+        <button id="closeCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="samdlg">
+    <div class="box">
+      <h2 id="samdlg-title"></h2>
+      <p id="samdlg-msg"></p>
+      <input id="samdlg-input" spellcheck="false">
+      <label id="samdlg-checkrow"><input type="checkbox" id="samdlg-check"><span id="samdlg-checklabel"></span></label>
+      <div class="btns" id="samdlg-btns"></div>
+    </div>
+  </div>
+
+  <div id="dropmask"><div class="inner">Drop to open / convert</div></div>
+
+  <input type="color" id="bgPick" value="#1e1e1e">
+
+</body>
+</html>
